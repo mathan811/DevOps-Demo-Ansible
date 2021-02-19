@@ -1,0 +1,70 @@
+---
+- hosts: webservers
+  become: yes
+  tasks:
+  - name: Update and upgrade apt packages
+    apt:
+      upgrade: yes
+      update_cache: yes
+      cache_valid_time: 86400 #One day
+  - name: "Install Java"
+    apt:
+      name: openjdk-8-jdk
+      state: present
+  - name: "Install Tomcat8"
+    package:
+      name: "{{ item }}"
+      state: present
+    with_items:
+      - tomcat8
+      - tomcat8-docs
+      - tomcat8-examples
+      - tomcat8-admin
+    register: tomcat_install
+  - name: "Copy Admin user update script"
+    copy: src=admin-user.sh dest=/root/
+    when: tomcat_install is changed
+    register: admin_copy
+  - name: "Execute Admin user update script"
+    shell: "bash /root/admin-user.sh"
+    when: admin_copy is changed
+    register: admin_user
+  - name: "Restart Tomcat"
+    service: name=tomcat8 state=restarted
+    when: admin_user is changed
+- hosts: node1
+  become: yes
+  tasks:
+  - name: Update and upgrade apt packages
+    apt:
+      upgrade: yes
+      update_cache: yes
+      cache_valid_time: 86400 #One day
+  - name: "Install Java"
+    apt:
+      name: openjdk-8-jdk
+      state: present
+  - name: "Install Jenkins on Node1"
+    apt_key: url=https://pkg.jenkins.io/debian-stable/jenkins.io.key state=present
+    register: jenkins_install
+  - name: ensure the repository is configured
+    apt_repository: repo='deb https://pkg.jenkins.io/debian-stable binary/' state=present
+  - name: "Check Jenkins is installed"
+    apt: name=jenkins update_cache=yes
+    become: yes
+  - name: "Start the Jenkins service"
+    service: name=jenkins state=started
+    register: jenkins_start
+  - name: "Pause for 10 seconds"
+    pause:
+      seconds: 10
+    when: jenkins_start is changed
+  - name: "Get Jenkins initial Admin Password"
+    shell: "cat /var/lib/jenkins/secrets/initialAdminPassword"
+    when: jenkins_install is changed
+    changed_when: false
+    register: result
+  - name: "Echo the password"
+    debug:
+     var: result.stdout
+    when: jenkins_install is changed
